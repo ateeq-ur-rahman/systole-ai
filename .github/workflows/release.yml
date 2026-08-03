@@ -1,0 +1,101 @@
+name: Build and Release Systole AI
+
+# Triggered by pushing a version tag, e.g.:
+#   git tag v0.2.0
+#   git push origin v0.2.0
+#
+# Builds the Windows installer (freezes the Python backend with
+# PyInstaller, then bundles it into the Tauri desktop app) and attaches
+# the resulting .msi/.exe to a new GitHub Release automatically -- no
+# local build.ps1 run required.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}  # also allow manually triggering a build from the Actions tab, without a tag
+
+permissions:
+  contents: write  # needed to create the Release and upload assets
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "frontend/src-tauri -> target"
+
+      # --- 1. Install backend dependencies and freeze it into an .exe ---
+      # Mirrors scripts/build.ps1's first step, but installs directly
+      # (no venv needed -- this runner is thrown away after the job).
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run backend test suite
+        working-directory: backend
+        run: python -m pytest -q --no-cov
+
+      - name: Freeze backend into systole-service.exe
+        working-directory: backend
+        run: >
+          pyinstaller
+          --name systole-service
+          --onefile
+          --noconsole
+          --add-data "app/database/schema.sql;app/database"
+          --collect-all watchdog
+          run.py
+
+      - name: Copy frozen backend into Tauri resources
+        run: Copy-Item -Force "backend\dist\systole-service.exe" "frontend\src-tauri\systole-service.exe"
+
+      # --- 2. Install frontend dependencies ---
+      # (Building the frontend itself + the Tauri bundle is handled by
+      # tauri-action below, which runs `npm run build` + `tauri build`
+      # together and creates the GitHub Release with the installer
+      # attached in one step.)
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      # --- 3. Build the Tauri desktop bundle and publish the release ---
+
+      - name: Build Tauri app and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: frontend
+          tagName: ${{ github.ref_name }}
+          releaseName: "Systole AI ${{ github.ref_name }}"
+          releaseBody: |
+            Download the `.msi` below, double-click to install, and launch Systole AI from your Start Menu.
+
+            First run may show a Windows SmartScreen warning (the installer isn't code-signed yet) --
+            click "More info" then "Run anyway" to proceed. This only appears once per version.
+          releaseDraft: true
+          prerelease: false

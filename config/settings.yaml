@@ -1,0 +1,31 @@
+# Systole AI - Storage Manager
+# User-editable settings. Anything left commented out uses the hardcoded
+# default from backend/app/config.py. This file is optional -- delete it
+# to run on pure defaults.
+
+# excluded_dirs:
+#   - "D:\\Games"
+#   - "E:\\Backups"
+
+# excluded_extensions:
+#   - ".vmdk"
+#   - ".iso"
+
+duplicates:
+  minimum_size_bytes: 4096
+
+monitor:
+  enabled: true
+  pause_on_battery_saver: true
+  pause_on_fullscreen_app: true
+
+cleanup:
+  automatic_cleanup: false
+  retention_days: 30
+  destination: safe_vault   # safe_vault | recycle_bin
+
+scheduler:
+  full_scan_cron: "0 3 * * *"
+  incremental_scan_interval_minutes: 30
+
+api_port: 8731

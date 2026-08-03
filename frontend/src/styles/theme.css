@@ -1,0 +1,148 @@
+/*
+  Systole design system — Windows 11 Fluent pass.
+
+  Direction: this keeps the established "cardiac telemetry" brand accent
+  (teal, tied to the product name "Systole") rather than switching to
+  Windows' system blue — the brief asks the app to *feel* like a premium
+  Win11 utility, not to impersonate a first-party Microsoft app. What
+  changes is everything Fluent Design actually specifies: layered
+  "Mica-like" surface tones, generous corner radius on card/widget
+  surfaces (Win11's Widgets board uses ~12-16px), soft multi-layer
+  elevation shadows instead of hard borders doing all the work, Segoe UI
+  Variable typography, and calm, short-duration motion (150-200ms,
+  cubic-bezier ease) on hover/press states.
+
+  Palette (unchanged accents, refined neutrals):
+    --bg        #0f1218  base window background (Win11 dark "Mica" base)
+    --surface   #171b23  card surface, 1 layer up
+    --surface-2 #1d222c  nested/hover surface, 2 layers up
+    --surface-3 #242a36  active/pressed surface, 3 layers up
+    --border    #262c38  hairline dividers, kept subtle
+    --pulse     #4fd8c4  brand accent — "alive/healthy", primary actions
+    --warn      #f5a623  amber — attention, pending state
+    --critical  #ef5a5a  soft red — errors, protected/blocked
+    --success   #4fd8c4  reuses the accent for "good news" (recovered space etc.)
+*/
+
+:root {
+  --bg: #0f1218;
+  --surface: #171b23;
+  --surface-2: #1d222c;
+  --surface-3: #242a36;
+  --border: #262c38;
+  --border-strong: #333b4a;
+
+  --ink: #edf0f5;
+  --ink-dim: #97a1b5;
+  --ink-faint: #5b6478;
+
+  --pulse: #4fd8c4;
+  --pulse-dim: #2a5f58;
+  --pulse-wash: rgba(79, 216, 196, 0.12);
+
+  /* Windows 11 semantic action/feedback colors -- distinct from the
+     brand accent above. Blue drives primary actions (buttons); green is
+     reserved for success/completion feedback; red only ever appears for
+     destructive actions. */
+  --action: #3b9eff;
+  --action-dim: #1f5fa8;
+  --action-wash: rgba(59, 158, 255, 0.14);
+  --success: #43c17a;
+  --success-wash: rgba(67, 193, 122, 0.14);
+
+  --warn: #f5a623;
+  --warn-wash: rgba(245, 166, 35, 0.12);
+  --critical: #ef5a5a;
+  --critical-wash: rgba(239, 90, 90, 0.12);
+
+  /* Win11 widget-card radius scale */
+  --radius-lg: 16px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+
+  /* Layered elevation, Fluent-style: soft, low-opacity, multi-stop */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24), 0 0 0 1px var(--border);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--border);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--border);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.32), 0 0 0 1px var(--border-strong);
+
+  --font-display: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --ease-fluent: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-med: 200ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* Faint radial wash behind the whole app, evoking Mica's subtle
+     background-image blend without needing a real backdrop image. */
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(79, 216, 196, 0.05), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(245, 166, 35, 0.03), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+::selection {
+  background: var(--pulse-dim);
+  color: var(--ink);
+}
+
+button {
+  font-family: inherit;
+}
+
+a {
+  color: var(--pulse);
+}
+
+:focus-visible {
+  outline: 2px solid var(--pulse);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Thin, Fluent-style scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
