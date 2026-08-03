@@ -8,7 +8,18 @@ readme = "README.md"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-v --cov=app --cov-report=term-missing"
+# --basetemp relocates pytest's tmp_path fixture away from the OS default
+# temp directory. This matters specifically on Windows: the default temp
+# root is under %USERPROFILE%\AppData\Local\Temp, and AppData is one of
+# PathGuard's hard-coded protected system directories (by design -- see
+# app/core/constants.py). Without this, every test that creates a fake
+# "Downloads" folder under tmp_path and asks an agent to monitor it gets
+# rejected as "path under protected system directory," since the *parent*
+# path genuinely does contain AppData. This is a collision between
+# pytest's default temp location and the safety layer, not a product bug
+# -- relocating pytest's temp root to a project-local folder sidesteps it
+# entirely, on every OS, not just CI.
+addopts = "-v --cov=app --cov-report=term-missing --basetemp=.pytest_tmp"
 
 [tool.black]
 line-length = 100
