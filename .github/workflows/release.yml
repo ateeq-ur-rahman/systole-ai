@@ -5,18 +5,31 @@ name: Build and Release Systole AI
 #   git push origin v0.2.0
 #
 # Builds the Windows installer (freezes the Python backend with
-# PyInstaller, then bundles it into the Tauri desktop app) and attaches
-# the resulting .msi/.exe to a new GitHub Release automatically -- no
-# local build.ps1 run required.
+# PyInstaller, then bundles it into the Tauri desktop app) and publishes
+# it to a SEPARATE, PUBLIC releases repo -- this repo (the source code)
+# stays private, but anyone can download the installer with no GitHub
+# account or permissions needed, from the public repo's Releases page.
+#
+# This requires one-time setup:
+#   1. Create a public repo to hold releases, e.g. "systole-ai-releases"
+#      (empty is fine -- it never needs any source code in it).
+#   2. Create a GitHub Personal Access Token with permission to push
+#      releases to that repo (Settings -> Developer settings -> Personal
+#      access tokens -> Fine-grained tokens -> scope it to just that one
+#      repo, "Contents: Read and write" permission).
+#   3. Add that token as a secret named RELEASE_REPO_TOKEN on THIS
+#      (private) repo: Settings -> Secrets and variables -> Actions ->
+#      New repository secret.
+#   4. Set RELEASE_REPO below to "your-username/systole-ai-releases".
+
+env:
+  RELEASE_REPO: ateeq-ur-rahman/systole-ai-releases
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch: {}  # also allow manually triggering a build from the Actions tab, without a tag
-
-permissions:
-  contents: write  # needed to create the Release and upload assets
 
 jobs:
   build-and-release:
@@ -72,30 +85,40 @@ jobs:
       - name: Copy frozen backend into Tauri resources
         run: Copy-Item -Force "backend\dist\systole-service.exe" "frontend\src-tauri\systole-service.exe"
 
-      # --- 2. Install frontend dependencies ---
-      # (Building the frontend itself + the Tauri bundle is handled by
-      # tauri-action below, which runs `npm run build` + `tauri build`
-      # together and creates the GitHub Release with the installer
-      # attached in one step.)
+      # --- 2. Build the frontend + Tauri desktop bundle ---
+      # No GITHUB_TOKEN passed here and no tagName given to tauri-action
+      # -- that's what keeps it in "build only" mode, since publishing
+      # needs to happen against a DIFFERENT repo below, which
+      # tauri-action itself doesn't support targeting.
 
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install
 
-      # --- 3. Build the Tauri desktop bundle and publish the release ---
-
-      - name: Build Tauri app and publish release
+      - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: frontend
-          tagName: ${{ github.ref_name }}
-          releaseName: "Systole AI ${{ github.ref_name }}"
-          releaseBody: |
+
+      # --- 3. Publish the built installer to the PUBLIC releases repo ---
+      # softprops/action-gh-release supports targeting a repository other
+      # than the one the workflow runs in, authenticated with the PAT
+      # stored as RELEASE_REPO_TOKEN (see setup notes above).
+
+      - name: Publish installer to public releases repo
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASE_REPO }}
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: "Systole AI ${{ github.ref_name }}"
+          draft: true
+          prerelease: false
+          body: |
             Download the `.msi` below, double-click to install, and launch Systole AI from your Start Menu.
 
             First run may show a Windows SmartScreen warning (the installer isn't code-signed yet) --
             click "More info" then "Run anyway" to proceed. This only appears once per version.
-          releaseDraft: true
-          prerelease: false
+          files: |
+            frontend/src-tauri/target/release/bundle/msi/*.msi
+            frontend/src-tauri/target/release/bundle/nsis/*.exe
