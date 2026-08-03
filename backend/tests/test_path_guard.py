@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-import tempfile
-
 import pytest
 
 from app.utils.path_guard import PathGuard
@@ -96,16 +93,13 @@ def test_duplicate_installers_can_be_moved_to_vault(tmp_path):
         assert result.allowed is True, f"{ext} should be movable: {result.reason}"
 
 
-def test_iso_disk_images_can_also_be_moved():
+def test_iso_disk_images_can_also_be_moved(tmp_path):
     """The third 'installers' category member -- same reasoning as exe/msi."""
-    import tempfile
     guard = PathGuard()
-    with tempfile.TemporaryDirectory() as tmp:
-        iso = os.path.join(tmp, "disk.iso")
-        with open(iso, "wb") as fh:
-            fh.write(b"fake iso bytes")
-        result = guard.is_modifiable(iso)
-        assert result.allowed is True
+    iso = tmp_path / "disk.iso"
+    iso.write_bytes(b"fake iso bytes")
+    result = guard.is_modifiable(str(iso))
+    assert result.allowed is True
 
 
 def test_modifiable_allows_ordinary_file(tmp_path):
@@ -124,17 +118,15 @@ def test_modifiable_still_enforces_scannable_rules(tmp_path):
     assert result.allowed is False
 
 
-def test_modifiable_allows_a_directory_not_just_files():
+def test_modifiable_allows_a_directory_not_just_files(tmp_path):
     """Regression test: directories can never be opened via open(), which
     the old lock-check used to try -- meaning every directory used to be
     incorrectly treated as 'locked' and blocked from ever being moved.
     Needed for the Version Cleanup Agent, which moves whole version-named
     folders (e.g. 'Project (1)') to the Safe Vault, not just files."""
     guard = PathGuard()
-    with tempfile.TemporaryDirectory() as tmp:
-        folder = os.path.join(tmp, "Project (1)")
-        os.mkdir(folder)
-        with open(os.path.join(folder, "file.txt"), "w") as fh:
-            fh.write("content")
-        result = guard.is_modifiable(folder)
-        assert result.allowed is True, result.reason
+    folder = tmp_path / "Project (1)"
+    folder.mkdir()
+    (folder / "file.txt").write_text("content")
+    result = guard.is_modifiable(str(folder))
+    assert result.allowed is True, result.reason
