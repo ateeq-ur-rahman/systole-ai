@@ -23,7 +23,7 @@ name: Build and Release Systole AI
 #   4. Set RELEASE_REPO below to "your-username/systole-ai-releases".
 
 env:
-  RELEASE_REPO: YOUR-USERNAME/systole-ai-releases
+  RELEASE_REPO: ateeq-ur-rahman/systole-ai-releases
 
 on:
   push:
