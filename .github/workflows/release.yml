@@ -23,7 +23,7 @@ name: Build and Release Systole AI
 #   4. Set RELEASE_REPO below to "your-username/systole-ai-releases".
 
 env:
-  RELEASE_REPO: ateeq-ur-rahman/systole-ai-releases
+  RELEASE_REPO: YOUR-USERNAME/systole-ai-releases
 
 on:
   push:
@@ -85,7 +85,35 @@ jobs:
       - name: Copy frozen backend into Tauri resources
         run: Copy-Item -Force "backend\dist\systole-service.exe" "frontend\src-tauri\systole-service.exe"
 
-      # --- 2. Build the frontend + Tauri desktop bundle ---
+      # --- 2. Set the app version to match the git tag, automatically ---
+      # This is what tags like v1.9.3 actually control from here on --
+      # tauri.conf.json/Cargo.toml's own version fields are no longer
+      # something anyone needs to remember to bump by hand before
+      # tagging. A tag "v1.9.3" becomes app version "1.9.3"; this step
+      # fails loudly if the tag doesn't look like a version at all,
+      # rather than silently building something with a stale/wrong
+      # version baked in.
+
+      - name: Set app version from git tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v?(\d+\.\d+\.\d+)$') {
+            Write-Error "Tag '$tag' doesn't look like a version (expected e.g. v1.9.3). Refusing to guess a version."
+            exit 1
+          }
+          $version = $Matches[1]
+          Write-Host "Setting app version to $version (from tag $tag)"
+
+          $confPath = "frontend\src-tauri\tauri.conf.json"
+          $conf = Get-Content $confPath -Raw | ConvertFrom-Json
+          $conf.version = $version
+          $conf | ConvertTo-Json -Depth 20 | Set-Content $confPath
+
+          $cargoPath = "frontend\src-tauri\Cargo.toml"
+          (Get-Content $cargoPath) -replace '^version = ".*"', "version = `"$version`"" | Set-Content $cargoPath
+
+      # --- 3. Build the frontend + Tauri desktop bundle ---
       # No GITHUB_TOKEN passed here and no tagName given to tauri-action
       # -- that's what keeps it in "build only" mode, since publishing
       # needs to happen against a DIFFERENT repo below, which
