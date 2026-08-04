@@ -157,6 +157,21 @@ fn main() {
             let child = spawn_backend(&resource_dir);
             let state = app.state::<BackendProcess>();
             *state.0.lock().unwrap() = child;
+
+            // TEMPORARY, for active debugging of the CORS/connectivity
+            // issue: right-click "Inspect" is unreliable in Tauri apps
+            // (the native context menu is commonly disabled in
+            // production builds), and F12 as a raw key isn't guaranteed
+            // to be wired up either. Opening devtools automatically
+            // guarantees we can actually see the real browser-level
+            // error, regardless of either quirk. Remove this call once
+            // the underlying issue is confirmed fixed -- it shouldn't
+            // ship in a real release (a devtools window popping open
+            // automatically is not something an end user should see).
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
