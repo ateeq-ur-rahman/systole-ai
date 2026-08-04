@@ -113,7 +113,10 @@ export default function App() {
       {connectionError && (
         <div className="empty-state" style={{ marginBottom: 28 }}>
           Can't reach the Systole AI background service at <span className="mono">127.0.0.1:8731</span>.
-          Make sure it's running (see <span className="mono">run.py</span> or the installed service).
+          If you're running from source, make sure <span className="mono">run.py</span> is running.
+          If you installed Systole AI, search your user profile for a file named{" "}
+          <span className="mono">startup-diagnostic.log</span> (likely under{" "}
+          <span className="mono">%APPDATA%</span>) — it explains exactly what happened on launch.
         </div>
       )}
 
