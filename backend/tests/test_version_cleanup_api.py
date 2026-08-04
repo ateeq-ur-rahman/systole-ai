@@ -140,32 +140,79 @@ def test_update_settings_via_api(client, tmp_path):
     assert body["automatic_cleanup"] is False
 
 
-def test_needs_confirmation_group_listed_and_confirmable_via_api(client, tmp_path):
+def test_needs_confirmation_group_listed_and_confirmable_via_api(tmp_path, monkeypatch):
+    """This test needs direct access to the container (to force a
+    deterministic tie on the underlying agent), which the shared `client`
+    fixture doesn't expose -- so it builds its own client+container here,
+    same pattern as test_settings_change_affects_the_next_real_scan
+    above."""
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:
+        conn.executescript(fh.read())
+    conn.commit()
+    run_migrations(conn)
+
+    settings = Settings(vault_dir=str(tmp_path / "vault"))
+    container = build_container(conn, settings)
+
+    from app.main import app
+    app.dependency_overrides[get_container] = lambda: container
+
     watch = tmp_path / "Downloads"
     watch.mkdir()
     a = watch / "Project_backup"
     b = watch / "Project_old"
     a.write_text("identical size content!!")
     b.write_text("identical size content!!")
-    same_ts = time.time() - 500
-    os.utime(a, (same_ts, same_ts))
-    os.utime(b, (same_ts, same_ts))
 
-    status = client.post("/version-cleanup", json={"path": str(watch)}).json()
-    assert status["version_groups_needing_confirmation"] == 1
+    # os.utime() cannot reliably force a genuine cross-tier tie: it only
+    # sets access/modified time. On Linux, st_ctime happens to also get
+    # bumped by utime() (coincidentally colliding), but on Windows
+    # st_ctime is the file's real, untouchable creation timestamp -- two
+    # sequentially-created files genuinely differ there, silently
+    # resolving what should be an unresolvable tie. Directly controlling
+    # what the scan reports sidesteps this platform difference entirely
+    # (same fix as tests/test_version_cleanup_agent.py's
+    # _force_genuine_tie helper).
+    from app.database.models import VersionMember
+    from app.utils.version_naming import VersionNameParser
 
-    groups = client.get("/version-cleanup/groups", params={"status": "needs_confirmation"}).json()
-    assert len(groups) == 1
-    group_id = groups[0]["id"]
-
-    detail = client.get(f"/version-cleanup/groups/{group_id}").json()
-    assert len(detail["members"]) == 2
-
-    confirm_resp = client.post(
-        f"/version-cleanup/groups/{group_id}/confirm", json={"kept_full_path": str(a)}
+    parser = VersionNameParser()
+    same_ts = "2024-01-01T00:00:00"
+    members = []
+    for path in (a, b):
+        parsed = parser.parse(path.stem)
+        members.append(VersionMember(
+            full_path=str(path), is_folder=False, base_name=parsed.base_name,
+            version_label=parsed.version_label, version_number=parsed.version_number,
+            size_bytes=path.stat().st_size, modified_time=same_ts, created_time=same_ts,
+        ))
+    group_key = members[0].base_name.lower()
+    monkeypatch.setattr(
+        container.version_cleanup, "_scan_and_group", lambda folder_path: {group_key: members}
     )
-    assert confirm_resp.status_code == 200
-    assert confirm_resp.json()["version_groups_cleaned"] == 1
 
-    remaining = sorted(p.name for p in watch.iterdir())
-    assert remaining == ["Project_backup"]
+    with TestClient(app) as client:
+        status = client.post("/version-cleanup", json={"path": str(watch)}).json()
+        assert status["version_groups_needing_confirmation"] == 1
+
+        groups = client.get("/version-cleanup/groups", params={"status": "needs_confirmation"}).json()
+        assert len(groups) == 1
+        group_id = groups[0]["id"]
+
+        detail = client.get(f"/version-cleanup/groups/{group_id}").json()
+        assert len(detail["members"]) == 2
+
+        confirm_resp = client.post(
+            f"/version-cleanup/groups/{group_id}/confirm", json={"kept_full_path": str(a)}
+        )
+        assert confirm_resp.status_code == 200
+        assert confirm_resp.json()["version_groups_cleaned"] == 1
+
+        remaining = sorted(p.name for p in watch.iterdir())
+        assert remaining == ["Project_backup"]
+
+    app.dependency_overrides.clear()
+    conn.close()

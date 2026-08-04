@@ -1,6 +1,6 @@
 [package]
 name = "systole"
-version = "0.1.0"
+version = "1.9.0"
 description = "Systole AI desktop shell"
 edition = "2021"
 
