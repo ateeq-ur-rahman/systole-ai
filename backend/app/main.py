@@ -35,9 +35,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:1420", "http://localhost:5173",
-        "tauri://localhost",       # macOS / Linux Tauri webview origin
-        "https://tauri.localhost", # Windows WebView2's actual origin -- NOT tauri://localhost
+        "tauri://localhost",  # macOS / Linux Tauri webview origin
     ],
+    # Windows WebView2's actual origin for the Tauri app is
+    # http://tauri.localhost -- confirmed directly from the browser's own
+    # console error, NOT https as commonly assumed/documented. Matched
+    # via regex (any scheme) rather than a second hardcoded guess, since
+    # guessing this exact string wrong once already caused a real,
+    # hard-to-diagnose bug.
+    allow_origin_regex=r"^https?://tauri\.localhost$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
