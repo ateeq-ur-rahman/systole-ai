@@ -22,7 +22,7 @@ import uvicorn
 
 from app.config import get_settings
 from app.container import build_container
-from app.database.db import get_connection, init_db
+from app.database.db import get_connection, init_db, ThreadSafeConnection
 from app.logging_config import configure_logging
 from app.agents.folder_monitor import FolderMonitorError
 from app.agents.version_cleanup import VersionCleanupError
@@ -183,7 +183,13 @@ def main() -> None:
     configure_logging(settings.log_dir)
     init_db()
 
-    conn = get_connection()
+    # This connection gets captured in closures and handed to background
+    # threads below (the watchdog real-time watcher, APScheduler's job
+    # pool) that don't go through get_connection() themselves -- so
+    # unlike the FastAPI per-request connections in api/deps.py (which
+    # ARE safely thread-isolated), this one specific connection needs
+    # explicit locking. See ThreadSafeConnection's docstring for why.
+    conn = ThreadSafeConnection(get_connection())
     container = build_container(conn, settings)
 
     scan_service = ScanService(container)
