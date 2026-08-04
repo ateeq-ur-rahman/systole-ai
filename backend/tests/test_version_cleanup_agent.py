@@ -161,7 +161,43 @@ def test_set_folder_rejects_protected_path(db_conn, tmp_path):
         agent.set_folder(str(fake_system))
 
 
-def test_truly_unresolvable_tie_triggers_needs_confirmation(db_conn, tmp_path):
+def _force_genuine_tie(agent, monkeypatch, watch_path: str, a_path, b_path):
+    """Makes the scan step report two members as identical across every
+    tie-break tier (modified time, created time, size, version number,
+    folder), regardless of what the real filesystem's timestamps happen
+    to be.
+
+    Real os.utime() cannot reliably force this on its own: it only sets
+    access/modified time. On Linux, st_ctime happens to also get bumped
+    by utime() (it's "inode change time" there), so two utime() calls
+    issued moments apart in a test usually collide by coincidence. On
+    Windows, st_ctime is the file's actual creation timestamp, which
+    utime() never touches at all -- so two sequentially-created test
+    files genuinely have different creation times there, breaking what
+    was meant to be an unresolvable tie and silently picking a winner
+    instead. This directly controls the values the decision engine sees,
+    so the test verifies the real invariant (agent safely refuses to
+    guess on a genuine tie) without depending on OS-specific timestamp
+    semantics that were never actually the thing under test."""
+    from app.database.models import VersionMember
+    from app.utils.version_naming import VersionNameParser
+
+    parser = VersionNameParser()
+    same_ts = "2024-01-01T00:00:00"
+    members = []
+    for path in (a_path, b_path):
+        parsed = parser.parse(path.stem)
+        members.append(VersionMember(
+            full_path=str(path), is_folder=False, base_name=parsed.base_name,
+            version_label=parsed.version_label, version_number=parsed.version_number,
+            size_bytes=path.stat().st_size, modified_time=same_ts, created_time=same_ts,
+        ))
+
+    group_key = members[0].base_name.lower()
+    monkeypatch.setattr(agent, "_scan_and_group", lambda folder_path: {group_key: members})
+
+
+def test_truly_unresolvable_tie_triggers_needs_confirmation(db_conn, tmp_path, monkeypatch):
     """Two members that tie on every single tier (same mtime, same size,
     same folder, and neither has a parseable version number -- e.g.
     '_backup' and '_old' both carry no number) must NOT be auto-resolved.
@@ -179,6 +215,7 @@ def test_truly_unresolvable_tie_triggers_needs_confirmation(db_conn, tmp_path):
     os.utime(b, (same_ts, same_ts))
 
     agent, group_repo, notify_repo, _ = _build_agent(db_conn, tmp_path)
+    _force_genuine_tie(agent, monkeypatch, str(watch), a, b)
     status = agent.set_folder(str(watch))
 
     # Nothing moved -- both files still present.
@@ -194,7 +231,7 @@ def test_truly_unresolvable_tie_triggers_needs_confirmation(db_conn, tmp_path):
     assert len(groups) == 1
 
 
-def test_confirm_group_resolves_an_uncertain_group(db_conn, tmp_path):
+def test_confirm_group_resolves_an_uncertain_group(db_conn, tmp_path, monkeypatch):
     watch = tmp_path / "Downloads"
     watch.mkdir()
     a = watch / "Project_backup"
@@ -206,6 +243,7 @@ def test_confirm_group_resolves_an_uncertain_group(db_conn, tmp_path):
     os.utime(b, (same_ts, same_ts))
 
     agent, group_repo, notify_repo, _ = _build_agent(db_conn, tmp_path)
+    _force_genuine_tie(agent, monkeypatch, str(watch), a, b)
     agent.set_folder(str(watch))
 
     groups = group_repo.list_groups(status="needs_confirmation")
