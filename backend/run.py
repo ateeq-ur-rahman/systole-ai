@@ -32,6 +32,12 @@ from app.services.cleanup_service import CleanupService
 from app.services.scan_service import ScanService
 from app.utils.db_time import sqlite_utc_now
 
+# Imported directly (not referenced only as the string "app.main:app")
+# specifically so PyInstaller's static import analysis can see and bundle
+# it -- see the comment at the uvicorn.run() call below for why this
+# matters for the frozen build specifically.
+from app.main import app as fastapi_app
+
 logger = logging.getLogger("systole.run")
 
 
@@ -256,7 +262,11 @@ def main() -> None:
         logger.info("Real-time monitor and USB watcher started.")
 
     try:
-        uvicorn.run("app.main:app", host=settings.api_host, port=settings.api_port,
+        # Passing the app object directly (not the string "app.main:app")
+        # is required for the frozen/PyInstaller build to work at all --
+        # see the import comment near the top of this file. Both forms
+        # behave identically under a normal `python run.py`.
+        uvicorn.run(fastapi_app, host=settings.api_host, port=settings.api_port,
                     reload=False, log_config=None)
     finally:
         scheduler.shutdown()
