@@ -82,11 +82,40 @@ fn spawn_backend(resource_dir: &Path) -> Option<Child> {
         }
     };
 
-    match Command::new(&service_path).spawn() {
+    // The child process's own stdout/stderr are NOT the same thing as
+    // this diagnostic log. By default, Command::spawn() has the child
+    // inherit the parent's stdio handles -- and this parent is a
+    // --windowed app with no console, so those handles are likely
+    // None/invalid for the child too. That means any Python-level
+    // output or crash traceback OTHER than the one specific exception
+    // already fixed in logging_config.py has been silently discarded
+    // this whole time, which is exactly why "the process launched
+    // successfully" told us nothing about what happened next.
+    // Redirecting to real files closes that blind spot.
+    let temp_dir = std::env::temp_dir();
+    let stdout_path = temp_dir.join("systole-backend-stdout.log");
+    let stderr_path = temp_dir.join("systole-backend-stderr.log");
+
+    let stdout_file = std::fs::File::create(&stdout_path);
+    let stderr_file = std::fs::File::create(&stderr_path);
+
+    let mut cmd = Command::new(&service_path);
+    if let Ok(f) = stdout_file {
+        cmd.stdout(std::process::Stdio::from(f));
+    }
+    if let Ok(f) = stderr_file {
+        cmd.stderr(std::process::Stdio::from(f));
+    }
+
+    match cmd.spawn() {
         Ok(child) => {
             write_startup_log(&format!(
-                "Systole AI background service started successfully.\nLaunched: {:?}",
-                service_path
+                "Systole AI background service started successfully.\n\
+                 Launched: {:?}\n\
+                 Process ID: {}\n\n\
+                 If the app still can't reach the backend, check these two files \
+                 for what happened after launch:\n  {:?}\n  {:?}",
+                service_path, child.id(), stdout_path, stderr_path
             ));
             Some(child)
         }
