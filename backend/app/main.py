@@ -33,7 +33,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://localhost:5173", "tauri://localhost"],
+    allow_origins=[
+        "http://localhost:1420", "http://localhost:5173",
+        "tauri://localhost",       # macOS / Linux Tauri webview origin
+        "https://tauri.localhost", # Windows WebView2's actual origin -- NOT tauri://localhost
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
