@@ -20,9 +20,16 @@ struct BackendProcess(Mutex<Option<Child>>);
 /// a real Windows build to test against) -- a file on disk is the one
 /// mechanism guaranteed to work and be inspectable after the fact,
 /// regardless of whether the app has a console or not.
-fn write_startup_log(app_data_dir: &Path, message: &str) {
-    let _ = std::fs::create_dir_all(app_data_dir);
-    let log_path = app_data_dir.join("startup-diagnostic.log");
+///
+/// Written to the OS temp directory specifically, NOT app_data_dir --
+/// temp is guaranteed writable by any user account with no special
+/// permissions, whereas an MSI install commonly lands under
+/// C:\Program Files\, and if Tauri's app_data_dir() resolution were to
+/// ever fail and fall back to a location under there, a non-admin
+/// process couldn't write to it at all, silently defeating the entire
+/// point of this diagnostic.
+fn write_startup_log(message: &str) {
+    let log_path = std::env::temp_dir().join("systole-startup-diagnostic.log");
     let _ = std::fs::write(&log_path, message);
 }
 
@@ -56,45 +63,39 @@ fn find_file(root: &Path, filename: &str) -> Option<PathBuf> {
     None
 }
 
-fn spawn_backend(resource_dir: &Path, app_data_dir: &Path) -> Option<Child> {
+fn spawn_backend(resource_dir: &Path) -> Option<Child> {
     let service_path = match find_file(resource_dir, "systole-service.exe") {
         Some(path) => path,
         None => {
-            write_startup_log(
-                app_data_dir,
-                &format!(
-                    "Systole AI could not start its background service.\n\n\
-                     Reason: systole-service.exe was not found anywhere under the \
-                     app's resource directory.\n\n\
-                     Resource directory searched: {:?}\n\n\
-                     This means the backend executable either wasn't bundled into \
-                     this installer correctly, or landed in a location this search \
-                     didn't expect. If you're seeing this, please share this file's \
-                     full contents for debugging.",
-                    resource_dir
-                ),
-            );
+            write_startup_log(&format!(
+                "Systole AI could not start its background service.\n\n\
+                 Reason: systole-service.exe was not found anywhere under the \
+                 app's resource directory.\n\n\
+                 Resource directory searched: {:?}\n\n\
+                 This means the backend executable either wasn't bundled into \
+                 this installer correctly, or landed in a location this search \
+                 didn't expect. If you're seeing this, please share this file's \
+                 full contents for debugging.",
+                resource_dir
+            ));
             return None;
         }
     };
 
     match Command::new(&service_path).spawn() {
         Ok(child) => {
-            write_startup_log(
-                app_data_dir,
-                &format!("Systole AI background service started successfully.\nLaunched: {:?}", service_path),
-            );
+            write_startup_log(&format!(
+                "Systole AI background service started successfully.\nLaunched: {:?}",
+                service_path
+            ));
             Some(child)
         }
         Err(e) => {
-            write_startup_log(
-                app_data_dir,
-                &format!(
-                    "Systole AI found the background service but failed to launch it.\n\n\
-                     Path found: {:?}\nError: {e}",
-                    service_path
-                ),
-            );
+            write_startup_log(&format!(
+                "Systole AI found the background service but failed to launch it.\n\n\
+                 Path found: {:?}\nError: {e}",
+                service_path
+            ));
             None
         }
     }
@@ -104,15 +105,27 @@ fn main() {
     tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
-            let resource_dir = app
-                .path()
-                .resource_dir()
-                .expect("failed to resolve resource dir");
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .unwrap_or_else(|_| resource_dir.clone());
-            let child = spawn_backend(&resource_dir, &app_data_dir);
+            // resource_dir() itself can fail. It previously used
+            // .expect(), which panics -- and a panic in a --windowed
+            // build produces no visible output at all (no console, no
+            // dialog), leaving zero diagnostic trail. Handling it
+            // explicitly means even THIS failure mode gets written to
+            // the log, instead of the app just vanishing with no trace.
+            let resource_dir = match app.path().resource_dir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    write_startup_log(&format!(
+                        "Systole AI failed to resolve its own resource directory at startup.\n\
+                         Error: {e}\n\n\
+                         This is a Tauri-level failure before the backend was even searched for."
+                    ));
+                    return Ok(()); // let the window still open so the frontend's
+                                    // own "can't reach service" message shows,
+                                    // rather than the whole app failing to launch
+                }
+            };
+
+            let child = spawn_backend(&resource_dir);
             let state = app.state::<BackendProcess>();
             *state.0.lock().unwrap() = child;
             Ok(())
