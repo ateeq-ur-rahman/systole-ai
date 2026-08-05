@@ -183,6 +183,28 @@ def main() -> None:
     configure_logging(settings.log_dir)
     init_db()
 
+    # Run this whole background service at lower-than-normal OS priority
+    # when settings.performance.low_priority_io is enabled (the default).
+    # This setting already existed in config.py but was never actually
+    # wired up to any real behavior until now. This is standard practice
+    # for background utilities (backup software, antivirus scanners,
+    # Windows' own Storage Sense) -- it doesn't reduce the total work the
+    # scanner does, but it tells Windows' scheduler to favor whatever the
+    # user is actively doing (a browser, a video call, anything in the
+    # foreground) whenever there's real CPU contention, instead of
+    # competing with it at equal priority. The file scanner's hashing
+    # worker pool defaults to (cpu_count - 1) threads (see
+    # max_worker_threads below) -- on a modest laptop, that's most of the
+    # machine's cores, and without this, a full scan can make the whole
+    # system feel sluggish for its duration.
+    if settings.performance.low_priority_io:
+        try:
+            import psutil
+            psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            logger.info("Process priority set to Below Normal (background-friendly)")
+        except Exception:
+            logger.debug("Could not lower process priority (non-Windows or insufficient permissions); continuing at normal priority")
+
     # This connection gets captured in closures and handed to background
     # threads below (the watchdog real-time watcher, APScheduler's job
     # pool) that don't go through get_connection() themselves -- so

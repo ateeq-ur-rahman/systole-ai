@@ -65,7 +65,14 @@ class SchedulerSettings(BaseModel):
 
 
 class PerformanceSettings(BaseModel):
-    max_worker_threads: int = max(2, (os.cpu_count() or 4) - 1)
+    # Half the available cores, not (cpu_count - 1). This is a
+    # background service, not a foreground batch job -- claiming nearly
+    # every core by default (the old behavior) made full scans
+    # noticeably slow down whatever else the user was doing on modest
+    # laptops. Combined with low_priority_io below, this means less raw
+    # parallelism claimed AND lower scheduling priority for what IS
+    # claimed.
+    max_worker_threads: int = max(1, (os.cpu_count() or 4) // 2)
     scan_batch_size: int = 500
     low_priority_io: bool = True
 
