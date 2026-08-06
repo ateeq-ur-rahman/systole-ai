@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -62,6 +63,9 @@ class VersionCycleResult:
 
 class VersionCleanupError(ValueError):
     """User-facing validation failures -- API routes turn this into a 400."""
+
+
+from app.ml.tie_break_learner import TieBreakLearner, build_candidate, Prediction
 
 
 class VersionCleanupAgent:
@@ -176,6 +180,7 @@ class VersionCleanupAgent:
 
             status = "cleaned" if moved > 0 or not move_enabled else "pending"
             self._group_repo.resolve_group(group_id, kept_full_path, bytes_saved, status, "user_confirmed")
+            self._record_choice_for_learning(members, kept_full_path)
             self._notify("success", f"Keeping {os.path.basename(kept_full_path)} (your choice).")
             if moved:
                 self._notify("success", f"Moved {moved} older version(s) into Safe Vault.")
@@ -184,6 +189,57 @@ class VersionCleanupAgent:
             self._conn.rollback()
             raise
         return self.get_status()
+
+    # -- tie-break learning (advisory only, never automatic) ------------
+    #
+    # Deliberately kept separate from the deterministic decision engine
+    # above. This never picks a winner on its own -- it only ever
+    # suggests, and only once there's genuine on-device history to
+    # suggest from. The "needs_confirmation" safety rule is completely
+    # unchanged: a human still resolves every genuine tie.
+
+    def _record_choice_for_learning(self, members, kept_full_path: str) -> None:
+        try:
+            all_names = [os.path.basename(m["full_path"]) for m in members]
+            candidates = [
+                build_candidate(m["full_path"], m["version_label"], all_names)
+                for m in members
+            ]
+            chosen_index = next(
+                i for i, m in enumerate(members) if m["full_path"] == kept_full_path
+            )
+            TieBreakLearner(self._conn).record_choice(candidates, chosen_index)
+        except Exception:
+            # Learning is a nice-to-have layered on top of a working
+            # feature -- a failure here must never block the actual
+            # cleanup confirmation that already succeeded above.
+            logger.exception("Failed to record tie-break training example (non-fatal)")
+
+    def suggest_resolution(self, group_id: int) -> Optional[Prediction]:
+        """Returns a suggested pick for a needs_confirmation group, if
+        (and only if) the on-device model has enough of this user's own
+        past history to be genuinely confident -- otherwise None, and
+        the UI falls back to a plain, unassisted choice exactly like
+        today."""
+        try:
+            members = self._group_repo.get_members(group_id)
+            if len(members) < 2:
+                return None
+            all_names = [os.path.basename(m["full_path"]) for m in members]
+            candidates = [
+                build_candidate(m["full_path"], m["version_label"], all_names)
+                for m in members
+            ]
+            prediction = TieBreakLearner(self._conn).predict(candidates)
+            if prediction is None:
+                return None
+            # Re-express the prediction's index in terms of the actual
+            # member row it points to, for the API layer to consume
+            # directly.
+            return prediction
+        except Exception:
+            logger.exception("Tie-break suggestion failed (non-fatal, falling back to no suggestion)")
+            return None
 
     # -- the core cycle --------------------------------------------------
 

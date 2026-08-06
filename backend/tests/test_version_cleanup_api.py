@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import time
+from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -213,6 +214,93 @@ def test_needs_confirmation_group_listed_and_confirmable_via_api(tmp_path, monke
 
         remaining = sorted(p.name for p in watch.iterdir())
         assert remaining == ["Project_backup"]
+
+    app.dependency_overrides.clear()
+    conn.close()
+
+
+def test_learned_suggestion_appears_after_enough_confirmed_ties(tmp_path):
+    """Full end-to-end proof through the real API: after this user
+    consistently resolves several genuine ties the same way (always
+    keeping the "_backup" version over the "_old" version, when both
+    otherwise tie on every real decision tier), a brand new, never-seen
+    tie with the same pattern should come back from the API with a
+    suggestion pointing at the "_backup" copy -- real learning,
+    exercised through the actual HTTP layer, not just the learner in
+    isolation.
+
+    Both candidates deliberately live in the SAME folder with identical
+    size/timestamps/no version number, so they're a genuine tie under
+    the real 5-tier decision engine too (folder priority, size, and
+    time all tie) -- the only thing that differs is the naming pattern
+    itself, which the deterministic engine doesn't use as a tiebreaker
+    but the learner can."""
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:
+        conn.executescript(fh.read())
+    conn.commit()
+    run_migrations(conn)
+
+    settings = Settings(vault_dir=str(tmp_path / "vault"))
+    container = build_container(conn, settings)
+
+    from app.main import app
+    app.dependency_overrides[get_container] = lambda: container
+
+    from app.database.models import VersionMember
+
+    def make_tie(index: int):
+        watch = tmp_path / f"Watch{index}"
+        watch.mkdir()
+        backup = watch / f"Report{index}_backup.pdf"
+        old = watch / f"Report{index}_old.pdf"
+        backup.write_text("content")
+        old.write_text("content")
+
+        same_ts = "2024-01-01T00:00:00"
+        members = [
+            VersionMember(full_path=str(backup), is_folder=False, base_name=f"report{index}",
+                          version_label="backup_suffix", version_number=None,
+                          size_bytes=7, modified_time=same_ts, created_time=same_ts),
+            VersionMember(full_path=str(old), is_folder=False, base_name=f"report{index}",
+                          version_label="old_suffix", version_number=None,
+                          size_bytes=7, modified_time=same_ts, created_time=same_ts),
+        ]
+        return watch, members, str(backup)
+
+    with TestClient(app) as client:
+        # Train: 6 separate ties, always keeping the "_backup" version.
+        for i in range(6):
+            watch, members, backup_path = make_tie(i)
+            with mock.patch.object(
+                container.version_cleanup, "_scan_and_group",
+                return_value={f"report{i}": members},
+            ):
+                client.post("/version-cleanup", json={"path": str(watch)})
+
+            groups = client.get("/version-cleanup/groups", params={"status": "needs_confirmation"}).json()
+            assert len(groups) == 1, f"iteration {i}: expected a genuine tie, got {groups}"
+            group_id = groups[0]["id"]
+            client.post(f"/version-cleanup/groups/{group_id}/confirm", json={"kept_full_path": backup_path})
+
+        # A brand new, never-seen tie with the same underlying pattern.
+        watch, members, backup_path = make_tie(99)
+        with mock.patch.object(
+            container.version_cleanup, "_scan_and_group",
+            return_value={"report99": members},
+        ):
+            client.post("/version-cleanup", json={"path": str(watch)})
+
+        groups = client.get("/version-cleanup/groups", params={"status": "needs_confirmation"}).json()
+        new_group_id = groups[0]["id"]
+        detail = client.get(f"/version-cleanup/groups/{new_group_id}").json()
+
+        assert detail["suggestion"] is not None
+        assert detail["suggestion"]["suggested_full_path"] == backup_path
+        assert detail["suggestion"]["confidence"] >= 0.55
+        assert "backup" in detail["suggestion"]["reason"].lower()
 
     app.dependency_overrides.clear()
     conn.close()

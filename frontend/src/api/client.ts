@@ -144,6 +144,12 @@ export interface VersionGroupMember {
   move_status: string;
 }
 
+export interface TieBreakSuggestion {
+  suggested_full_path: string;
+  confidence: number;
+  reason: string;
+}
+
 export interface ScanFilterCategory {
   id: string;
   extensions: string[];
@@ -199,11 +205,18 @@ export const api = {
   getVersionGroups: (status?: string) =>
     request<VersionGroup[]>(`/version-cleanup/groups${status ? `?status=${status}` : ""}`),
   getVersionGroupDetail: (id: number) =>
-    request<{ group: VersionGroup; members: VersionGroupMember[] }>(`/version-cleanup/groups/${id}`),
+    request<{ group: VersionGroup; members: VersionGroupMember[]; suggestion: TieBreakSuggestion | null }>(`/version-cleanup/groups/${id}`),
   confirmVersionGroup: (id: number, kept_full_path: string) =>
     request<VersionCleanupStatus>(`/version-cleanup/groups/${id}/confirm`, {
       method: "POST",
       body: JSON.stringify({ kept_full_path }),
+    }),
+  getDismissedRecommendations: () =>
+    request<{ dismissed: { category: string; expires_at: string | null }[] }>("/recommendations/dismissed"),
+  dismissRecommendation: (category: string, snooze_days?: number) =>
+    request<{ dismissed: boolean; category: string }>("/recommendations/dismiss", {
+      method: "POST",
+      body: JSON.stringify({ category, snooze_days: snooze_days ?? null }),
     }),
   getFolderMonitorStatus: () => request<FolderMonitorStatus>("/folder-monitor"),
   setMonitoredFolder: (path: string, scan_interval_seconds = 120) =>

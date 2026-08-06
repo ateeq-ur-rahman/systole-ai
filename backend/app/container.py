@@ -32,6 +32,7 @@ from app.repositories.duplicate_repository import DuplicateRepository
 from app.repositories.file_repository import FileRepository
 from app.repositories.folder_repository import FolderRepository
 from app.repositories.monitored_folder_repository import MonitoredFolderRepository
+from app.repositories.dismissal_repository import DismissalRepository
 from app.repositories.notification_repository import NotificationRepository
 from app.repositories.vault_repository import VaultRepository
 from app.repositories.version_cleanup_folder_repository import VersionCleanupFolderRepository
@@ -54,6 +55,7 @@ class Container:
     folder_repo: FolderRepository
     monitored_folder_repo: MonitoredFolderRepository
     notification_repo: NotificationRepository
+    dismissal_repo: DismissalRepository
     version_cleanup_folder_repo: VersionCleanupFolderRepository
     version_group_repo: VersionGroupRepository
 
@@ -82,6 +84,7 @@ def build_container(conn: sqlite3.Connection, settings: Settings | None = None) 
     folder_repo = FolderRepository(conn)
     monitored_folder_repo = MonitoredFolderRepository(conn)
     notification_repo = NotificationRepository(conn)
+    dismissal_repo = DismissalRepository(conn)
     version_cleanup_folder_repo = VersionCleanupFolderRepository(conn)
     version_group_repo = VersionGroupRepository(conn)
 
@@ -136,6 +139,7 @@ def build_container(conn: sqlite3.Connection, settings: Settings | None = None) 
         drive_repo=drive_repo, file_repo=file_repo, dup_repo=dup_repo, vault_repo=vault_repo,
         folder_repo=folder_repo, monitored_folder_repo=monitored_folder_repo,
         notification_repo=notification_repo,
+        dismissal_repo=dismissal_repo,
         version_cleanup_folder_repo=version_cleanup_folder_repo,
         version_group_repo=version_group_repo,
         guard=guard, vault=vault,

@@ -68,6 +68,34 @@ _MIGRATIONS: list[tuple[str, str]] = [
     ("safe_vault.warning_sent_at -- tracks whether the pre-deletion warning "
      "notification has already fired for this entry, so it's only sent once",
      "ALTER TABLE safe_vault ADD COLUMN warning_sent_at TEXT"),
+
+    ("tie_break_choices -- local, on-device training data for the version "
+     "cleanup tie-break learner. Records every genuinely-tied group a user "
+     "manually resolves, so the model can learn this user's own preferences "
+     "over time. Nothing here ever leaves the device; it's just structured "
+     "history of decisions already made locally.",
+     """CREATE TABLE IF NOT EXISTS tie_break_choices (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        candidates_json TEXT NOT NULL,
+        chosen_index    INTEGER NOT NULL,
+        decided_at      TEXT NOT NULL DEFAULT (datetime('now'))
+     )"""),
+
+    ("dismissed_recommendations -- AI memory of recommendation categories "
+     "the user has explicitly dismissed, so they stop resurfacing "
+     "indefinitely (dismissed forever) or for a chosen snooze period. "
+     "This is what makes 'you dismissed this before, I won't suggest it "
+     "again' a real, persisted fact rather than an aspiration.",
+     """CREATE TABLE IF NOT EXISTS dismissed_recommendations (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        category     TEXT NOT NULL,
+        dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at   TEXT,
+        times_dismissed INTEGER NOT NULL DEFAULT 1
+     )"""),
+
+    ("index for fast dismissal lookups by category",
+     "CREATE INDEX IF NOT EXISTS idx_dismissed_recommendations_category ON dismissed_recommendations(category)"),
 ]
 
 

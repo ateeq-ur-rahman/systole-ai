@@ -3,14 +3,20 @@
 //
 // Responsibility: launch the bundled Python backend (run.py / the frozen
 // systole-service.exe produced by the build scripts) as a child process
-// when the app window opens, and terminate it cleanly on exit. The
-// webview itself only talks to the backend over HTTP (see
+// when the app window opens, terminate it cleanly on real exit, and
+// provide a system tray icon with minimize-to-tray behavior (closing the
+// window hides it and keeps the backend running in the background,
+// rather than quitting the app outright -- matching how a background
+// utility like this should behave, not a document editor). The webview
+// itself only talks to the backend over HTTP (see
 // frontend/src/api/client.ts) -- this file does no business logic.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{Manager, WindowEvent};
 
 struct BackendProcess(Mutex<Option<Child>>);
 
@@ -130,6 +136,19 @@ fn spawn_backend(resource_dir: &Path) -> Option<Child> {
     }
 }
 
+/// Kills the backend child process, if one is currently tracked. Shared
+/// by both real exit paths (the tray "Quit" menu item, and a window
+/// actually being destroyed) -- with minimize-to-tray in place, closing
+/// the window is no longer necessarily a real exit, so this can't just
+/// live inline in one event handler anymore.
+fn kill_backend(app: &tauri::AppHandle) {
+    let state = app.state::<BackendProcess>();
+    let mut guard = state.0.lock().unwrap();
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
@@ -158,16 +177,71 @@ fn main() {
             let state = app.state::<BackendProcess>();
             *state.0.lock().unwrap() = child;
 
+            // -- System tray --------------------------------------------
+            // A background utility like this belongs in the tray, not
+            // just the taskbar -- it's meant to keep running
+            // unobtrusively, the same way antivirus software or backup
+            // tools do. Left-clicking the tray icon (or "Show Systole
+            // AI" from the menu) brings the window back; "Quit" is the
+            // one real exit path, since closing the window itself now
+            // just hides it (see the CloseRequested handler below).
+            let show_item = MenuItem::with_id(app, "show", "Show Systole AI", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let mut tray_builder = TrayIconBuilder::new()
+                .menu(&tray_menu)
+                .tooltip("Systole AI")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        kill_backend(app);
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+
+            tray_builder.build(app)?;
+
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let state = window.state::<BackendProcess>();
-                let mut guard = state.0.lock().unwrap();
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                }
+        .on_window_event(|window, event| match event {
+            // Minimize-to-tray: closing the window hides it instead of
+            // exiting the app. The backend keeps running in the
+            // background, exactly as intended for a continuous storage
+            // monitor -- the user explicitly quits via the tray menu
+            // when they actually want it to stop.
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let _ = window.hide();
             }
+            WindowEvent::Destroyed => {
+                kill_backend(&window.app_handle());
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running Systole");

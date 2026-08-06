@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
-    cleanup, drives, duplicates, folder_monitor, folders, notifications, restore, scan,
+    cleanup, drives, duplicates, folder_monitor, folders, notifications, recommendations, restore, scan,
     settings, statistics, version_cleanup,
 )
 from app.config import get_settings
@@ -60,6 +60,7 @@ app.include_router(folders.router)
 app.include_router(folder_monitor.router)
 app.include_router(notifications.router)
 app.include_router(version_cleanup.router)
+app.include_router(recommendations.router)
 
 
 @app.on_event("startup")

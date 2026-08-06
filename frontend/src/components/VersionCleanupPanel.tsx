@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { FolderSearch, ScanLine, Pause, Play, X, Sparkles } from "lucide-react";
+import { FolderSearch, ScanLine, Pause, Play, X, Sparkles, Lightbulb } from "lucide-react";
 import {
   api,
   type VersionCleanupStatus,
   type VersionGroup,
   type VersionGroupMember,
+  type TieBreakSuggestion,
 } from "../api/client";
 import { humanBytes, baseName } from "../utils/format";
 import { PulseTrace } from "./PulseTrace";
@@ -17,10 +18,14 @@ interface Props {
 
 function GroupConfirmRow({ groupId, onResolved }: { groupId: number; onResolved: () => void }) {
   const [members, setMembers] = useState<VersionGroupMember[] | null>(null);
+  const [suggestion, setSuggestion] = useState<TieBreakSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.getVersionGroupDetail(groupId).then((r) => setMembers(r.members));
+    api.getVersionGroupDetail(groupId).then((r) => {
+      setMembers(r.members);
+      setSuggestion(r.suggestion);
+    });
   }, [groupId]);
 
   async function choose(fullPath: string) {
@@ -40,6 +45,33 @@ function GroupConfirmRow({ groupId, onResolved }: { groupId: number; onResolved:
       <div style={{ fontSize: 12.5, color: "var(--warn)", marginBottom: 6 }}>
         Multiple versions detected — pick which one to keep:
       </div>
+
+      {suggestion && (
+        <div
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 10, padding: "8px 10px", marginBottom: 8,
+            borderRadius: "var(--radius-sm)", background: "var(--action-wash)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <Lightbulb size={13} strokeWidth={2} color="var(--action)" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: "var(--ink)" }}>
+              Suggested: keep <strong className="mono">{baseName(suggestion.suggested_full_path)}</strong>
+              <span style={{ color: "var(--ink-dim)" }}> — {suggestion.reason} ({Math.round(suggestion.confidence * 100)}% confident)</span>
+            </span>
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ padding: "5px 12px", fontSize: 12, flexShrink: 0 }}
+            onClick={() => choose(suggestion.suggested_full_path)}
+            disabled={busy}
+          >
+            Use this
+          </button>
+        </div>
+      )}
+
       {members.map((m) => (
         <div
           key={m.id}

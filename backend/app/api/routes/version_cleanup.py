@@ -96,7 +96,23 @@ def get_group(group_id: int, container: Container = Depends(get_container)):
     if not group:
         raise HTTPException(status_code=404, detail="Version group not found")
     members = container.version_group_repo.get_members(group_id)
-    return {"group": dict(group), "members": [dict(m) for m in members]}
+
+    suggestion = None
+    if group["status"] == "needs_confirmation":
+        prediction = container.version_cleanup.suggest_resolution(group_id)
+        if prediction is not None:
+            suggested_member = members[prediction.chosen_index]
+            suggestion = {
+                "suggested_full_path": suggested_member["full_path"],
+                "confidence": prediction.confidence,
+                "reason": prediction.reason,
+            }
+
+    return {
+        "group": dict(group),
+        "members": [dict(m) for m in members],
+        "suggestion": suggestion,
+    }
 
 
 @router.post("/groups/{group_id}/confirm")
