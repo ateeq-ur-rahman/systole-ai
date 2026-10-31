@@ -2,9 +2,7 @@
 
 The first agent of the **Systole AI Operating System** for Windows.
 
-## Download
 
-**[⬇ Download Systole AI for Windows](https://github.com/YOUR-USERNAME/YOUR-REPO/releases/latest/download/Systole-AI_x64_en-US.msi)**
 
 No Python, Node, or Rust required — just download the `.msi`, double-click it, and follow the installer. Systole AI will appear in your Start Menu.
 
@@ -167,6 +165,4 @@ PyYAML
 | `POST /restore` | Restore a file (or everything) from the Vault |
 | `POST /settings` | Update user-adjustable settings |
 
-## License
 
-Proprietary — RD Syntherge Technologies Pvt. Ltd.
